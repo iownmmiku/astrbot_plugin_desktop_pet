@@ -182,6 +182,7 @@ class DesktopPetPlugin(Star):
         app.router.add_get("/api/personas", self._http_personas)
         app.router.add_post("/api/action", self._http_action)
         app.router.add_post("/api/chat", self._http_chat)
+        app.router.add_post("/api/generate-lines", self._http_generate_lines)
         app.router.add_get("/ws", self._http_ws)
 
         self._runner = web.AppRunner(app)
@@ -351,6 +352,38 @@ class DesktopPetPlugin(Star):
         cfg["pet_name"] = str(self._cfg("pet_name", "桌宠") or "桌宠")
         cfg["llm_action_reply"] = bool(self._cfg("llm_action_reply", True))
         return cfg
+
+    async def _http_generate_lines(self, request: web.Request):
+        """按当前人格生成自言自语或犯困台词。"""
+        if not self._check_token(request):
+            return web.json_response({"error": "unauthorized"}, status=401)
+        try:
+            body = await request.json()
+        except Exception:
+            body = {}
+        kind = str(body.get("kind", "chatter"))
+        if kind not in ("chatter", "sleepy"):
+            return web.json_response({"error": "unknown line kind"}, status=400)
+        try:
+            count = max(1, min(20, int(body.get("count", 8))))
+        except (TypeError, ValueError):
+            count = 8
+        label = "自言自语" if kind == "chatter" else "犯困"
+        persona, _ = await self._resolve_persona()
+        prompt = (f"请根据当前人格生成{count}条桌宠{label}台词。每条一行，不要编号、引号或解释；"
+                  "每条简短自然，符合桌宠在桌面上的说话方式。")
+        try:
+            provider = self.context.get_using_provider()
+            if provider is None:
+                raise RuntimeError("没有可用的模型提供商")
+            resp = await provider.text_chat(prompt=prompt, contexts=[], system_prompt=persona or "")
+            lines = _split_lines(resp.completion_text or "")
+            if not lines:
+                raise RuntimeError("模型未返回有效台词")
+            return web.json_response({"kind": kind, "lines": lines[:count]})
+        except Exception as e:
+            logger.warning(f"[桌宠] 台词生成失败: {e}")
+            return web.json_response({"error": f"台词生成失败：{e}"}, status=502)
 
     async def _http_get_config(self, request: web.Request):
         if not self._check_token(request):

@@ -1,8 +1,7 @@
-name: astrbot_plugin_desktop_pet
-desc: 虚拟桌宠（参考《虚拟桌宠模拟器》）：与 Live2D 桌面端联动，桌宠可说话、被投喂/抚摸，机器人回复可同步到桌宠气泡。
-version: v0.3.0
+﻿name: astrbot_plugin_desktop_pet
+desc: 铏氭嫙妗屽疇锛堝弬鑰冦€婅櫄鎷熸瀹犳ā鎷熷櫒銆嬶級锛氫笌 Live2D 妗岄潰绔仈鍔紝妗屽疇鍙璇濄€佽鎶曞杺/鎶氭懜锛屾満鍣ㄤ汉鍥炲鍙悓姝ュ埌妗屽疇姘旀场銆?version: 0.3.1
 author: iownmmiku
 repo: https://github.com/iownmmiku/astrbot_plugin_desktop_pet
-display_name: 虚拟桌宠
-short_desc: Live2D 桌宠联动插件，桌宠端聊天由 AstrBot 大模型驱动
-support_platforms: []
+display_name: 铏氭嫙妗屽疇
+short_desc: Live2D 妗屽疇鑱斿姩鎻掍欢锛屾瀹犵鑱婂ぉ鐢?AstrBot 澶фā鍨嬮┍鍔?support_platforms: []
+
