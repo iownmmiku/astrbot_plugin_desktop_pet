@@ -1,0 +1,76 @@
+{
+  "ws_host": {
+    "description": "桌宠服务监听地址",
+    "type": "string",
+    "hint": "桌面端通过该地址连接插件，本机使用保持 127.0.0.1 即可。",
+    "default": "127.0.0.1"
+  },
+  "ws_port": {
+    "description": "桌宠服务监听端口",
+    "type": "int",
+    "hint": "桌面端连接的端口，需与桌面端设置一致。",
+    "default": 9898
+  },
+  "auth_token": {
+    "description": "连接令牌（可选）",
+    "type": "string",
+    "hint": "设置后桌面端必须携带相同 token 才能连接。",
+    "default": ""
+  },
+  "pet_name": {
+    "description": "桌宠名字",
+    "type": "string",
+    "default": "桌宠"
+  },
+  "persona": {
+    "description": "桌宠人格设定（作为 LLM system prompt）",
+    "type": "text",
+    "default": "你是一只住在用户电脑桌面上的可爱桌宠。用简短、活泼、口语化的语气说话，每次回复不超过两句话，可以撒娇、吐槽、卖萌。不要暴露你是 AI 模型。"
+  },
+  "push_bot_reply": {
+    "description": "把机器人对用户的回复同步到桌宠气泡",
+    "type": "bool",
+    "hint": "开启后，AstrBot 在各平台回复的消息会让桌宠“复读”出来。",
+    "default": true
+  },
+  "enable_state_decay": {
+    "description": "启用状态随时间下降（饱食/心情/清洁/精力）",
+    "type": "bool",
+    "default": true
+  },
+  "enable_chatter": {
+    "description": "启用自言自语（空闲时随机说话）",
+    "type": "bool",
+    "default": true
+  },
+  "chatter_lines": {
+    "description": "自言自语台词池（每行一句）",
+    "type": "text",
+    "default": "好无聊呀……\n你在忙什么呢？\n今天天气不错呢。\n想吃点心了……\n嘿嘿，我在这儿哦。\n别一直盯着我看啦。\n要不要陪我玩一会？"
+  },
+  "chatter_interval_sec": {
+    "description": "自言自语最小间隔（秒）",
+    "type": "int",
+    "default": 90
+  },
+  "sleepy_lines": {
+    "description": "犯困台词池（每行一句）",
+    "type": "text",
+    "default": "好困……\n呼啊……想睡觉了。\n眼睛睁不开了……"
+  },
+  "walk_speed": {
+    "description": "走动速度（像素/帧）",
+    "type": "float",
+    "default": 1.5
+  },
+  "sleepy_threshold": {
+    "description": "犯困阈值（精力低于该值时犯困）",
+    "type": "int",
+    "default": 20
+  },
+  "enable_roam": {
+    "description": "允许桌宠自由走动",
+    "type": "bool",
+    "default": true
+  }
+}
