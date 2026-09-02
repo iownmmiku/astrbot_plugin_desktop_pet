@@ -67,7 +67,7 @@ def _data_dir() -> str:
     "astrbot_plugin_desktop_pet",
     "you",
     "虚拟桌宠：Live2D 桌面端联动，聊天/投喂/状态养成",
-    "v0.1.0",
+    "v0.2.0",
 )
 class DesktopPetPlugin(Star):
     def __init__(self, context: Context, config: dict | None = None):
@@ -78,6 +78,7 @@ class DesktopPetPlugin(Star):
         self._runner: web.AppRunner | None = None
         self._decay_task: asyncio.Task | None = None
         self._history: list[dict] = []  # 桌宠端对话上下文
+        self._chat_lock = asyncio.Lock()
         self._behavior_overrides: dict = {}
         self._load_state()
         self._load_behavior_overrides()
@@ -91,9 +92,19 @@ class DesktopPetPlugin(Star):
             cfg[k] = self._behavior_overrides.get(k, self.config.get(k))
         cfg["chatter_lines"] = _split_lines(cfg.get("chatter_lines") or "")
         cfg["sleepy_lines"] = _split_lines(cfg.get("sleepy_lines") or "")
-        cfg["chatter_interval_sec"] = max(5, int(cfg.get("chatter_interval_sec") or 90))
-        cfg["walk_speed"] = max(0.2, min(10.0, float(cfg.get("walk_speed") or 1.5)))
-        cfg["sleepy_threshold"] = max(0, min(100, int(cfg.get("sleepy_threshold") or 20)))
+        # 使用显式 None 判断，避免用户将阈值/速度设置为 0 时被错误回退；异常值也不能拖垮 API
+        try:
+            cfg["chatter_interval_sec"] = max(5, int(90 if cfg.get("chatter_interval_sec") is None else cfg.get("chatter_interval_sec")))
+        except (TypeError, ValueError):
+            cfg["chatter_interval_sec"] = 90
+        try:
+            cfg["walk_speed"] = max(0.2, min(10.0, float(1.5 if cfg.get("walk_speed") is None else cfg.get("walk_speed"))))
+        except (TypeError, ValueError):
+            cfg["walk_speed"] = 1.5
+        try:
+            cfg["sleepy_threshold"] = max(0, min(100, int(20 if cfg.get("sleepy_threshold") is None else cfg.get("sleepy_threshold"))))
+        except (TypeError, ValueError):
+            cfg["sleepy_threshold"] = 20
         cfg["enable_chatter"] = bool(cfg.get("enable_chatter", True))
         cfg["enable_roam"] = bool(cfg.get("enable_roam", True))
         return cfg
@@ -365,9 +376,11 @@ class DesktopPetPlugin(Star):
                 pid = str(self.config.get("astrbot_persona_id", "") or "").strip()
                 if pid:
                     p = await self._maybe_await(mgr.get_persona(pid))
-                    if p and getattr(p, "system_prompt", ""):
+                    prompt = getattr(p, "system_prompt", "") or (p.get("system_prompt", "") if isinstance(p, dict) else "")
+                    if p and prompt:
                         logger.info(f"[桌宠] 使用 AstrBot 人格: {pid}")
-                        return p.system_prompt, list(getattr(p, "begin_dialogs", None) or [])
+                        begin = getattr(p, "begin_dialogs", None) or (p.get("begin_dialogs") if isinstance(p, dict) else []) or []
+                        return prompt, list(begin)
                     logger.warning(f"[桌宠] 未找到 AstrBot 人格 {pid}，回退到插件自定义人格")
             elif source == "default":
                 d = await self._maybe_await(mgr.get_default_persona_v3(None))
@@ -381,6 +394,11 @@ class DesktopPetPlugin(Star):
         return fallback, []
 
     async def _chat(self, text: str) -> str:
+        # 串行化桌宠对话，避免多个请求同时改写同一段上下文
+        async with self._chat_lock:
+            return await self._chat_unlocked(text)
+
+    async def _chat_unlocked(self, text: str) -> str:
         persona, begin_dialogs = await self._resolve_persona()
         source = str(self.config.get("persona_source", "custom"))
         pet_name = self.config.get("pet_name", "桌宠")
