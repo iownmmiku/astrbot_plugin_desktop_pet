@@ -1,7 +1,15 @@
-﻿name: astrbot_plugin_desktop_pet
-desc: 铏氭嫙妗屽疇锛堝弬鑰冦€婅櫄鎷熸瀹犳ā鎷熷櫒銆嬶級锛氫笌 Live2D 妗岄潰绔仈鍔紝妗屽疇鍙璇濄€佽鎶曞杺/鎶氭懜锛屾満鍣ㄤ汉鍥炲鍙悓姝ュ埌妗屽疇姘旀场銆?version: 0.3.1
+name: astrbot_plugin_desktop_pet
+display_name: AstrBot 虚拟桌宠
+short_desc: Live2D 桌宠联动插件，支持人格对话、状态养成和桌面互动
+desc: "与 AstrBot 和 Live2D 桌面端联动的虚拟桌宠插件，支持聊天、投喂、摸头、洗澡、睡觉、随机动作和人格对话。"
+version: 0.3.1
 author: iownmmiku
 repo: https://github.com/iownmmiku/astrbot_plugin_desktop_pet
-display_name: 铏氭嫙妗屽疇
-short_desc: Live2D 妗屽疇鑱斿姩鎻掍欢锛屾瀹犵鑱婂ぉ鐢?AstrBot 澶фā鍨嬮┍鍔?support_platforms: []
-
+astrbot_version: ">=4.17.0"
+support_platforms: []
+tags:
+  - 桌宠
+  - Live2D
+  - AI
+  - 人格对话
+  - 虚拟桌宠
