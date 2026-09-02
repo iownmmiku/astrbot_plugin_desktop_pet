@@ -49,6 +49,26 @@ BEHAVIOR_KEYS = (
     "enable_roam",
 )
 
+# 人格/对话配置键（允许桌面端通过 /api/config 回写覆盖）
+PERSONA_KEYS = (
+    "persona_source",
+    "astrbot_persona_id",
+    "persona",
+    "pet_name",
+    "llm_action_reply",
+)
+
+OVERRIDE_KEYS = BEHAVIOR_KEYS + PERSONA_KEYS
+
+# 互动场景描述（用于 LLM 生成互动回复）
+ACTION_SCENARIOS = {
+    "feed": "主人刚刚给你喂了好吃的。",
+    "clean": "主人刚刚给你洗了个澡，你现在干干净净、香喷喷的。",
+    "play": "主人刚刚摸了摸你的头，陪你玩了一会儿。",
+    "sleep": "主人催你去睡觉了。",
+    "poke": "主人戳了戳你。",
+}
+
 
 def _split_lines(text: str) -> list[str]:
     return [ln.strip() for ln in str(text).splitlines() if ln.strip()]
@@ -67,7 +87,7 @@ def _data_dir() -> str:
     "astrbot_plugin_desktop_pet",
     "you",
     "虚拟桌宠：Live2D 桌面端联动，聊天/投喂/状态养成",
-    "v0.2.0",
+    "v0.3.0",
 )
 class DesktopPetPlugin(Star):
     def __init__(self, context: Context, config: dict | None = None):
@@ -109,6 +129,12 @@ class DesktopPetPlugin(Star):
         cfg["enable_roam"] = bool(cfg.get("enable_roam", True))
         return cfg
 
+    def _cfg(self, key: str, default=None):
+        """读取配置：桌面端回写的覆盖项优先于 AstrBot 插件配置。"""
+        if key in self._behavior_overrides:
+            return self._behavior_overrides[key]
+        return self.config.get(key, default)
+
     def _config_path(self) -> str:
         return os.path.join(_data_dir(), CONFIG_FILE)
 
@@ -116,7 +142,7 @@ class DesktopPetPlugin(Star):
         try:
             with open(self._config_path(), "r", encoding="utf-8") as f:
                 data = json.load(f)
-            self._behavior_overrides = {k: data[k] for k in BEHAVIOR_KEYS if k in data}
+            self._behavior_overrides = {k: data[k] for k in OVERRIDE_KEYS if k in data}
         except Exception:
             pass
 
@@ -153,6 +179,7 @@ class DesktopPetPlugin(Star):
         app.router.add_get("/api/state", self._http_state)
         app.router.add_get("/api/config", self._http_get_config)
         app.router.add_post("/api/config", self._http_set_config)
+        app.router.add_get("/api/personas", self._http_personas)
         app.router.add_post("/api/action", self._http_action)
         app.router.add_post("/api/chat", self._http_chat)
         app.router.add_get("/ws", self._http_ws)
@@ -241,7 +268,7 @@ class DesktopPetPlugin(Star):
         if not self._check_token(request):
             return web.json_response({"error": "unauthorized"}, status=401)
         return web.json_response(
-            {"pet_name": self.config.get("pet_name", "桌宠"), "state": self.state}
+            {"pet_name": self._cfg("pet_name", "桌宠"), "state": self.state}
         )
 
     async def _http_chat(self, request: web.Request):
@@ -279,7 +306,16 @@ class DesktopPetPlugin(Star):
         }
         if action not in replies:
             return web.json_response({"error": "unknown action"}, status=400)
-        text, delta, exp = replies[action]
+        canned, delta, exp = replies[action]
+        text = canned
+        # 开启后互动回复由 LLM 按当前人格生成（闲聊/吃饭等场景都有人格口吻）；失败回退到预置台词
+        if bool(self._cfg("llm_action_reply", True)):
+            try:
+                generated = await self._gen_action_reply(action)
+                if generated:
+                    text = generated
+            except Exception as e:
+                logger.warning(f"[桌宠] 互动回复 LLM 生成失败，使用预置台词: {e}")
         for k, v in delta.items():
             self.state[k] += v
         self._add_exp(exp)
@@ -289,10 +325,62 @@ class DesktopPetPlugin(Star):
         await self._broadcast({"type": "speak", "text": text, "source": action})
         return web.json_response({"reply": text, "state": self.state})
 
+    async def _gen_action_reply(self, action: str) -> str | None:
+        """按当前人格为互动行为生成一句回复；无法生成时返回 None。"""
+        scene = ACTION_SCENARIOS.get(action)
+        if not scene:
+            return None
+        persona, _ = await self._resolve_persona()
+        prompt = (
+            f"{scene}请用你的人设口吻，对主人说一两句简短的话。"
+            "只输出说的话本身，不要旁白、不要动作描写、不要引号。"
+        )
+        provider = self.context.get_using_provider()
+        if provider is None:
+            return None
+        resp = await provider.text_chat(prompt=prompt, contexts=[], system_prompt=persona or "")
+        reply = (resp.completion_text or "").strip().strip("“”\"'")
+        return reply[:120] if reply else None
+
+    def get_full_config(self) -> dict:
+        """行为配置 + 人格/对话配置，供桌面端读取。"""
+        cfg = self.get_behavior()
+        cfg["persona_source"] = str(self._cfg("persona_source", "custom") or "custom")
+        cfg["astrbot_persona_id"] = str(self._cfg("astrbot_persona_id", "") or "")
+        cfg["persona"] = str(self._cfg("persona", "") or "")
+        cfg["pet_name"] = str(self._cfg("pet_name", "桌宠") or "桌宠")
+        cfg["llm_action_reply"] = bool(self._cfg("llm_action_reply", True))
+        return cfg
+
     async def _http_get_config(self, request: web.Request):
         if not self._check_token(request):
             return web.json_response({"error": "unauthorized"}, status=401)
-        return web.json_response(self.get_behavior())
+        return web.json_response(self.get_full_config())
+
+    async def _http_personas(self, request: web.Request):
+        """列出 AstrBot 已配置人格，供桌面端下拉选择。"""
+        if not self._check_token(request):
+            return web.json_response({"error": "unauthorized"}, status=401)
+        items: list[dict] = []
+        try:
+            mgr = self.context.persona_manager
+            cands = getattr(mgr, "personas", None)
+            if cands is None and hasattr(mgr, "get_all_personas"):
+                cands = await self._maybe_await(mgr.get_all_personas())
+            if isinstance(cands, dict):
+                cands = list(cands.values())
+            for p in cands or []:
+                if isinstance(p, dict):
+                    pid = p.get("persona_id") or p.get("id") or p.get("name")
+                    name = p.get("name") or pid
+                else:
+                    pid = getattr(p, "persona_id", None) or getattr(p, "id", None) or getattr(p, "name", None)
+                    name = getattr(p, "name", None) or pid
+                if pid:
+                    items.append({"id": str(pid), "name": str(name)})
+        except Exception as e:
+            logger.warning(f"[桌宠] 获取人格列表失败: {e}")
+        return web.json_response({"personas": items})
 
     async def _http_set_config(self, request: web.Request):
         """桌面端回写行为配置；保存覆盖项并广播给所有客户端。"""
@@ -306,11 +394,13 @@ class DesktopPetPlugin(Star):
             body["chatter_lines"] = "\n".join(map(str, body["chatter_lines"]))
         if isinstance(body.get("sleepy_lines"), list):
             body["sleepy_lines"] = "\n".join(map(str, body["sleepy_lines"]))
-        for k in BEHAVIOR_KEYS:
+        for k in OVERRIDE_KEYS:
             if k in body:
                 self._behavior_overrides[k] = body[k]
+        if "llm_action_reply" in self._behavior_overrides:
+            self._behavior_overrides["llm_action_reply"] = bool(self._behavior_overrides["llm_action_reply"])
         self._save_behavior_overrides()
-        cfg = self.get_behavior()
+        cfg = self.get_full_config()
         await self._broadcast({"type": "config", "data": cfg})
         return web.json_response(cfg)
 
@@ -324,7 +414,7 @@ class DesktopPetPlugin(Star):
         await ws.send_json(
             {
                 "type": "hello",
-                "pet_name": self.config.get("pet_name", "桌宠"),
+                "pet_name": self._cfg("pet_name", "桌宠"),
                 "state": self.state,
                 "behavior": self.get_behavior(),
                 "ts": time.time(),
@@ -368,12 +458,12 @@ class DesktopPetPlugin(Star):
 
         返回 (system_prompt, begin_dialogs)。失败时回退到插件自定义人格。
         """
-        source = str(self.config.get("persona_source", "custom"))
-        fallback = str(self.config.get("persona", "")).strip()
+        source = str(self._cfg("persona_source", "custom"))
+        fallback = str(self._cfg("persona", "")).strip()
         try:
             mgr = self.context.persona_manager
             if source == "persona":
-                pid = str(self.config.get("astrbot_persona_id", "") or "").strip()
+                pid = str(self._cfg("astrbot_persona_id", "") or "").strip()
                 if pid:
                     p = await self._maybe_await(mgr.get_persona(pid))
                     prompt = getattr(p, "system_prompt", "") or (p.get("system_prompt", "") if isinstance(p, dict) else "")
@@ -400,8 +490,8 @@ class DesktopPetPlugin(Star):
 
     async def _chat_unlocked(self, text: str) -> str:
         persona, begin_dialogs = await self._resolve_persona()
-        source = str(self.config.get("persona_source", "custom"))
-        pet_name = self.config.get("pet_name", "桌宠")
+        source = str(self._cfg("persona_source", "custom"))
+        pet_name = self._cfg("pet_name", "桌宠")
         if source == "custom":
             # 仅插件自定义人格时加桌宠语境包装；选用 AstrBot 已有/默认人格时
             # 直接使用原文，不叠加其他设定，完全按所选人格对话
@@ -412,7 +502,7 @@ class DesktopPetPlugin(Star):
             provider = self.context.get_using_provider()
             if provider is not None:
                 # 人格变更时清空上下文，并注入人格的开场对话
-                persona_key = f"{self.config.get('persona_source')}:{self.config.get('astrbot_persona_id')}:{hash(persona)}"
+                persona_key = f"{self._cfg('persona_source')}:{self._cfg('astrbot_persona_id')}:{hash(persona)}"
                 if getattr(self, "_persona_key", None) != persona_key:
                     self._persona_key = persona_key
                     self._history = []
@@ -465,7 +555,7 @@ class DesktopPetPlugin(Star):
     async def pet_status(self, event: AstrMessageEvent):
         """查看桌宠状态"""
         s = self.state
-        name = self.config.get("pet_name", "桌宠")
+        name = self._cfg("pet_name", "桌宠")
         connected = len(self._clients)
         yield event.plain_result(
             f"🐾 {name} Lv.{s['level']}（经验 {s['exp']}/{s['level'] * 100}）\n"

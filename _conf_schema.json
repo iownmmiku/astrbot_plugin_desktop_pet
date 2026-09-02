@@ -42,6 +42,12 @@
     "type": "text",
     "default": "你是一只住在用户电脑桌面上的可爱桌宠。用简短、活泼、口语化的语气说话，每次回复不超过两句话，可以撒娇、吐槽、卖萌。不要暴露你是 AI 模型。"
   },
+  "llm_action_reply": {
+    "description": "互动回复由大模型生成",
+    "type": "bool",
+    "hint": "开启后，投喂/摸头/洗澡/睡觉/戳一戳等互动会按当前人格由 LLM 生成回复；失败时回退到预置台词。",
+    "default": true
+  },
   "push_bot_reply": {
     "description": "把机器人对用户的回复同步到桌宠气泡",
     "type": "bool",
