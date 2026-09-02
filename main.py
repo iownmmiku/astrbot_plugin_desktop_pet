@@ -382,8 +382,14 @@ class DesktopPetPlugin(Star):
 
     async def _chat(self, text: str) -> str:
         persona, begin_dialogs = await self._resolve_persona()
+        source = str(self.config.get("persona_source", "custom"))
         pet_name = self.config.get("pet_name", "桌宠")
-        prompt = f"（用户在桌面上对桌宠“{pet_name}”说）{text}"
+        if source == "custom":
+            # 仅插件自定义人格时加桌宠语境包装；选用 AstrBot 已有/默认人格时
+            # 直接使用原文，不叠加其他设定，完全按所选人格对话
+            prompt = f"（用户在桌面上对桌宠“{pet_name}”说）{text}"
+        else:
+            prompt = text
         try:
             provider = self.context.get_using_provider()
             if provider is not None:
