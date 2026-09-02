@@ -22,7 +22,8 @@
 
 1. 在 AstrBot WebUI 插件页选择「从 GitHub 安装」，填入本仓库地址；或把本仓库 clone 到 `AstrBot/data/plugins/` 下
 2. 重启 AstrBot，在插件页启用并按需修改配置
-3. 桌面端见：https://github.com/iownmmiku/astrbot_plugin_desktop_pet （README 中的 desktop 说明）
+3. 安装桌面端：<https://github.com/iownmmiku/astrbot-desktop-pet>（clone 后 `npm install && npm start`），
+   在桌宠设置面板填入插件地址（默认 `127.0.0.1:9898`）即可联动
 
 ## 配置项（节选）
 
@@ -34,6 +35,12 @@
 | `push_bot_reply` | 开 | 机器人回复同步到桌宠气泡 |
 | `enable_chatter` 等 | — | 自言自语/走速/犯困等行为配置，可被桌面端同步修改 |
 
-## 桌面端
+## 与桌面端的联动
 
-桌面端（Electron + Live2D，支持任意 `.model3.json` 模型）源码见主项目 `desktop/` 目录。
+桌面端仓库：<https://github.com/iownmmiku/astrbot-desktop-pet>
+（Electron + Live2D，透明置顶窗口，支持任意 `.model3.json` 模型）
+
+- 本插件启动后在 `ws_host:ws_port` 监听；桌面端通过 WebSocket + HTTP API 连接（支持远程服务器与 token 鉴权，已开 CORS）
+- 桌面端的聊天/投喂/抚摸等互动调用插件 API；插件把回复、状态、行为配置实时推送到桌宠气泡
+- 行为配置（自言自语、走速、犯困阈值等）由插件统一持有，桌面端连接自动同步、可回写，多端实时一致
+- 详细协议见桌面端仓库 README
