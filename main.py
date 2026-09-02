@@ -344,15 +344,59 @@ class DesktopPetPlugin(Star):
 
     # ---------------- LLM ----------------
 
+    @staticmethod
+    async def _maybe_await(value):
+        import inspect
+
+        if inspect.isawaitable(value):
+            return await value
+        return value
+
+    async def _resolve_persona(self) -> tuple[str, list[str]]:
+        """根据 persona_source 解析 system_prompt 与开场对话。
+
+        返回 (system_prompt, begin_dialogs)。失败时回退到插件自定义人格。
+        """
+        source = str(self.config.get("persona_source", "custom"))
+        fallback = str(self.config.get("persona", "")).strip()
+        try:
+            mgr = self.context.persona_manager
+            if source == "persona":
+                pid = str(self.config.get("astrbot_persona_id", "") or "").strip()
+                if pid:
+                    p = await self._maybe_await(mgr.get_persona(pid))
+                    if p and getattr(p, "system_prompt", ""):
+                        logger.info(f"[桌宠] 使用 AstrBot 人格: {pid}")
+                        return p.system_prompt, list(getattr(p, "begin_dialogs", None) or [])
+                    logger.warning(f"[桌宠] 未找到 AstrBot 人格 {pid}，回退到插件自定义人格")
+            elif source == "default":
+                d = await self._maybe_await(mgr.get_default_persona_v3(None))
+                prompt = getattr(d, "prompt", "") or (d.get("prompt") if isinstance(d, dict) else "")
+                if prompt:
+                    logger.info("[桌宠] 使用 AstrBot 默认人格")
+                    begin = getattr(d, "begin_dialogs", None) or (d.get("begin_dialogs") if isinstance(d, dict) else []) or []
+                    return prompt, list(begin)
+        except Exception as e:
+            logger.warning(f"[桌宠] 获取 AstrBot 人格失败，回退到插件自定义人格: {e}")
+        return fallback, []
+
     async def _chat(self, text: str) -> str:
-        persona = str(self.config.get("persona", "")).strip()
+        persona, begin_dialogs = await self._resolve_persona()
         pet_name = self.config.get("pet_name", "桌宠")
         prompt = f"（用户在桌面上对桌宠“{pet_name}”说）{text}"
         try:
             provider = self.context.get_using_provider()
             if provider is not None:
+                # 人格变更时清空上下文，并注入人格的开场对话
+                persona_key = f"{self.config.get('persona_source')}:{self.config.get('astrbot_persona_id')}:{hash(persona)}"
+                if getattr(self, "_persona_key", None) != persona_key:
+                    self._persona_key = persona_key
+                    self._history = []
+                    for i in range(0, len(begin_dialogs) - 1, 2):
+                        self._history.append({"role": "user", "content": str(begin_dialogs[i])})
+                        self._history.append({"role": "assistant", "content": str(begin_dialogs[i + 1])})
                 self._history.append({"role": "user", "content": prompt})
-                self._history = self._history[-10:]
+                self._history = self._history[-12:]
                 resp = await provider.text_chat(
                     prompt=prompt,
                     contexts=self._history[:-1],

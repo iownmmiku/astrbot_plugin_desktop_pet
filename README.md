@@ -31,7 +31,10 @@
 |---|---|---|
 | `ws_host` / `ws_port` | `127.0.0.1` / `9898` | 服务监听地址；远程连接时 host 改为 `0.0.0.0` |
 | `auth_token` | 空 | 连接令牌，设置后桌面端需携带相同 token |
-| `pet_name` / `persona` | 桌宠 / 内置 | 桌宠名字与人格设定 |
+| `pet_name` | 桌宠 | 桌宠名字 |
+| `persona_source` | `custom` | 人格来源：插件自定义人格 / AstrBot 已配置人格 / AstrBot 默认人格 |
+| `astrbot_persona_id` | 空 | 选择 AstrBot WebUI 里已配置的人格（人格来源选「AstrBot 已配置人格」时生效，含其开场对话） |
+| `persona` | 内置 | 插件自定义人格（人格来源选「插件自定义人格」时生效） |
 | `push_bot_reply` | 开 | 机器人回复同步到桌宠气泡 |
 | `enable_chatter` 等 | — | 自言自语/走速/犯困等行为配置，可被桌面端同步修改 |
 

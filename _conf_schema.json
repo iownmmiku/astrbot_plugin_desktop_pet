@@ -22,8 +22,22 @@
     "type": "string",
     "default": "桌宠"
   },
+  "persona_source": {
+    "description": "人格来源",
+    "type": "string",
+    "hint": "custom=使用下方插件自定义人格；persona=使用 AstrBot 已配置人格（需在下面选择）；default=使用 AstrBot 当前默认人格。",
+    "options": ["custom", "persona", "default"],
+    "labels": ["插件自定义人格", "AstrBot 已配置人格", "AstrBot 默认人格"],
+    "default": "custom"
+  },
+  "astrbot_persona_id": {
+    "description": "选择 AstrBot 人格（人格来源为「AstrBot 已配置人格」时生效）",
+    "type": "string",
+    "_special": "select_persona",
+    "default": ""
+  },
   "persona": {
-    "description": "桌宠人格设定（作为 LLM system prompt）",
+    "description": "插件自定义人格（人格来源为「插件自定义人格」时作为 LLM system prompt）",
     "type": "text",
     "default": "你是一只住在用户电脑桌面上的可爱桌宠。用简短、活泼、口语化的语气说话，每次回复不超过两句话，可以撒娇、吐槽、卖萌。不要暴露你是 AI 模型。"
   },
