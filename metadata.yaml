@@ -2,7 +2,7 @@ name: astrbot_plugin_desktop_pet
 display_name: AstrBot 虚拟桌宠
 short_desc: Live2D 桌宠联动插件，支持人格对话、状态养成和桌面互动
 desc: "与 AstrBot 和 Live2D 桌面端联动的虚拟桌宠插件，支持聊天、投喂、摸头、洗澡、睡觉、随机动作和人格对话。"
-version: 0.3.1
+version: 0.3.2
 author: iownmmiku
 repo: https://github.com/iownmmiku/astrbot_plugin_desktop_pet
 astrbot_version: ">=4.17.0"

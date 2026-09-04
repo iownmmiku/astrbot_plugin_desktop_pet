@@ -37,6 +37,7 @@ DECAY_PER_MIN = {  # 启用状态下降时，每分钟衰减
 
 STATE_FILE = "pet_state.json"
 CONFIG_FILE = "pet_behavior.json"
+PLUGIN_VERSION = "0.3.2"
 
 # 行为配置键（同步给桌面端，可被桌面端回写覆盖）
 BEHAVIOR_KEYS = (
@@ -87,7 +88,7 @@ def _data_dir() -> str:
     "astrbot_plugin_desktop_pet",
     "you",
     "虚拟桌宠：Live2D 桌面端联动，聊天/投喂/状态养成",
-    "v0.3.0",
+    "v0.3.2",
 )
 class DesktopPetPlugin(Star):
     def __init__(self, context: Context, config: dict | None = None):
@@ -269,7 +270,8 @@ class DesktopPetPlugin(Star):
         if not self._check_token(request):
             return web.json_response({"error": "unauthorized"}, status=401)
         return web.json_response(
-            {"pet_name": self._cfg("pet_name", "桌宠"), "state": self.state}
+            {"pet_name": self._cfg("pet_name", "桌宠"), "state": self.state,
+             "plugin_version": PLUGIN_VERSION, "clients": len(self._clients)}
         )
 
     async def _http_chat(self, request: web.Request):
@@ -450,6 +452,7 @@ class DesktopPetPlugin(Star):
                 "pet_name": self._cfg("pet_name", "桌宠"),
                 "state": self.state,
                 "behavior": self.get_behavior(),
+                "plugin_version": PLUGIN_VERSION,
                 "ts": time.time(),
             }
         )
