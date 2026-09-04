@@ -37,7 +37,7 @@ DECAY_PER_MIN = {  # 启用状态下降时，每分钟衰减
 
 STATE_FILE = "pet_state.json"
 CONFIG_FILE = "pet_behavior.json"
-PLUGIN_VERSION = "0.3.2"
+PLUGIN_VERSION = "0.3.3"
 
 # 行为配置键（同步给桌面端，可被桌面端回写覆盖）
 BEHAVIOR_KEYS = (
@@ -247,13 +247,18 @@ class DesktopPetPlugin(Star):
         self._clamp()
 
     async def _decay_loop(self):
+        last_rounded = {k: round(self.state[k]) for k in DECAY_PER_MIN}
         while True:
             await asyncio.sleep(60)
             for k, v in DECAY_PER_MIN.items():
                 self.state[k] -= v
             self._clamp()
             self._save_state()
-            await self._broadcast({"type": "state", "data": self.state})
+            # 只在四舍五入值变化时广播，减少不必要的 WebSocket 流量
+            current_rounded = {k: round(self.state[k]) for k in DECAY_PER_MIN}
+            if current_rounded != last_rounded:
+                last_rounded = current_rounded
+                await self._broadcast({"type": "state", "data": self.state})
 
     # ---------------- HTTP / WS ----------------
 
