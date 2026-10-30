@@ -1,0 +1,152 @@
+{
+  "ws_host": {
+    "description": "桌宠服务监听地址",
+    "type": "string",
+    "hint": "桌面端通过该地址连接插件，本机使用保持 127.0.0.1 即可。",
+    "default": "127.0.0.1"
+  },
+  "ws_port": {
+    "description": "桌宠服务监听端口",
+    "type": "int",
+    "hint": "桌面端连接的端口，需与桌面端设置一致。",
+    "default": 9898
+  },
+  "auth_token": {
+    "description": "连接令牌（可选）",
+    "type": "string",
+    "hint": "设置后桌面端必须携带相同 token 才能连接。",
+    "default": ""
+  },
+  "provider_id": {
+    "description": "桌宠专用聊天模型（留空使用 AstrBot 当前模型）",
+    "type": "string",
+    "_special": "select_provider",
+    "default": ""
+  },
+  "llm_timeout_sec": {
+    "description": "聊天和台词生成超时（秒）",
+    "type": "int",
+    "hint": "默认 45 秒，超时返回明确错误，不增加经验或污染上下文；有效范围 1–180。",
+    "default": 45
+  },
+  "action_llm_timeout_sec": {
+    "description": "互动台词生成超时（秒）",
+    "type": "int",
+    "hint": "默认 8 秒，超时使用预置台词，投喂等互动仍可完成；有效范围 1–60。",
+    "default": 8
+  },
+  "llm_max_concurrency": {
+    "description": "同时调用模型的最大数量",
+    "type": "int",
+    "hint": "包含聊天、互动和台词生成。忙时聊天返回可重试错误，互动使用预置台词；范围 1–8。",
+    "default": 2
+  },
+  "chat_max_chars": {
+    "description": "单次聊天最大字数",
+    "type": "int",
+    "default": 4000
+  },
+  "history_turns": {
+    "description": "保留的聊天轮数",
+    "type": "int",
+    "hint": "只截断完整问答轮次，人格的开场对话会持续保留；范围 1–30。重启后清空聊天历史。",
+    "default": 6
+  },
+  "pet_name": {
+    "description": "桌宠名字",
+    "type": "string",
+    "default": "桌宠"
+  },
+  "persona_source": {
+    "description": "人格来源",
+    "type": "string",
+    "hint": "custom=使用下方插件自定义人格；persona=使用 AstrBot 已配置人格（需在下面选择）；default=使用 AstrBot 当前默认人格。",
+    "options": [
+      "custom",
+      "persona",
+      "default"
+    ],
+    "labels": [
+      "插件自定义人格",
+      "AstrBot 已配置人格",
+      "AstrBot 默认人格"
+    ],
+    "default": "custom"
+  },
+  "astrbot_persona_id": {
+    "description": "选择 AstrBot 人格（人格来源为「AstrBot 已配置人格」时生效）",
+    "type": "string",
+    "_special": "select_persona",
+    "default": ""
+  },
+  "persona": {
+    "description": "插件自定义人格",
+    "hint": "仅当人格来源为「插件自定义人格」时生效；选择 AstrBot 已配置人格或默认人格时本项会被完全忽略，对话只使用所选人格的设定（含其开场对话）。",
+    "type": "text",
+    "default": "你是一只住在用户电脑桌面上的可爱桌宠。用简短、活泼、口语化的语气说话，每次回复不超过两句话，可以撒娇、吐槽、卖萌。不要暴露你是 AI 模型。"
+  },
+  "llm_action_reply": {
+    "description": "互动回复由大模型生成",
+    "type": "bool",
+    "hint": "开启后，投喂/摸头/洗澡/睡觉/戳一戳等互动会按当前人格由 LLM 生成回复；失败时回退到预置台词。",
+    "default": true
+  },
+  "push_bot_reply": {
+    "description": "把机器人对用户的回复同步到桌宠气泡",
+    "type": "bool",
+    "hint": "开启后，AstrBot 在各平台回复的消息会让桌宠“复读”出来。",
+    "default": true
+  },
+  "enable_state_decay": {
+    "description": "启用状态随时间下降（饱食/心情/清洁/精力）",
+    "type": "bool",
+    "default": true
+  },
+  "enable_chatter": {
+    "description": "启用自言自语（空闲时随机说话）",
+    "type": "bool",
+    "default": true
+  },
+  "chatter_lines": {
+    "description": "自言自语台词池（每行一句）",
+    "type": "text",
+    "default": "好无聊呀……\n你在忙什么呢？\n今天天气不错呢。\n想吃点心了……\n嘿嘿，我在这儿哦。\n别一直盯着我看啦。\n要不要陪我玩一会？"
+  },
+  "chatter_interval_sec": {
+    "description": "自言自语最小间隔（秒）",
+    "type": "int",
+    "default": 90
+  },
+  "sleepy_lines": {
+    "description": "犯困台词池（每行一句）",
+    "type": "text",
+    "default": "好困……\n呼啊……想睡觉了。\n眼睛睁不开了……"
+  },
+  "walk_speed": {
+    "description": "走动速度（像素/帧）",
+    "type": "float",
+    "default": 1.5
+  },
+  "sleepy_threshold": {
+    "description": "犯困阈值（精力低于该值时犯困）",
+    "type": "int",
+    "default": 20
+  },
+  "enable_roam": {
+    "description": "允许桌宠自由走动",
+    "type": "bool",
+    "default": true
+  },
+  "action_cooldown_sec": {
+    "description": "相同互动冷却时间（秒）",
+    "type": "float",
+    "hint": "默认10秒；0可关闭冷却，仍限制相同动作并发。聊天指令投喂同样受限，冷却时间持久保存。",
+    "default": 10.0
+  },
+  "sleep_energy_per_min": {
+    "description": "睡眠期间每分钟恢复的精力",
+    "type": "float",
+    "hint": "睡觉进入持续恢复，不立即加经验；精力满时自动醒来，也可手动唤醒。睡眠状态持久保存，不补算关机时长。",
+    "default": 6.0
+  }
+}

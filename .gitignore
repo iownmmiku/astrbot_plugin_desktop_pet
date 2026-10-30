@@ -1,0 +1,25 @@
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+.pytest_cache/
+.coverage
+htmlcov/
+build/
+dist/
+*.egg-info/
+
+# Local credentials and environment overrides
+.env
+.env.*
+!.env.example
+
+# Runtime data, legacy saves, logs, and interrupted atomic writes
+/data/
+/plugin_data/
+pet_state.json
+pet_state.json.*
+pet_behavior.json
+pet_behavior.json.*
+.pet-*.tmp
+*.log
