@@ -1,6 +1,6 @@
-# 桌宠联动协议 — 插件 0.5.0 / 桌面端 0.8.0
+# 桌宠联动协议 — 插件 0.5.1 / 桌面端 0.8.1
 
-本文件以交付目录中的插件 `main.py` 为准，描述 HTTP、WebSocket、错误和持久化语义。协议版本为 `1`。旧端点和主要返回字段保留，0.5.0 增加的字段应由旧客户端忽略。
+本文件以配套插件的 `main.py` 为准，描述 HTTP、WebSocket、错误和持久化语义。协议版本保持 `1`。旧端点和主要返回字段保留，旧客户端可以忽略 0.5.1 新增的冷却同步字段；完整增补见第 9 节。
 
 协议回归已通过真实 HTTP/WebSocket 和文件操作验证；测试中的 AstrBot、人格管理器、模型提供商使用替身。**真实 AstrBot 实例和真实 LLM 尚未联调，不应将这些测试描述为完整部署验证。**
 
@@ -22,7 +22,7 @@ X-Pet-Token: your-token
 Authorization: Bearer your-token
 ```
 
-兼容旧端的 `?token=your-token` 查询参数也受支持。桌面端 0.8.0 的网络请求由 Electron 主进程完成，使用请求头携带令牌。不要把令牌写进诊断文本或保存的分享 URL。
+兼容旧端的 `?token=your-token` 查询参数也受支持。桌面端 0.8.1 的网络请求由 Electron 主进程完成，使用请求头携带令牌。不要把令牌写进诊断文本或保存的分享 URL。
 
 `OPTIONS` 预检无需令牌，返回 `204`。普通 HTTP 响应带 `Cache-Control: no-store` 和 CORS 头；允许的请求头包括 `Content-Type`、`X-Pet-Token`、`Authorization`。令牌为空时不要求鉴权；远程部署应配置令牌。
 
@@ -48,11 +48,11 @@ POST 请求使用 `Content-Type: application/json`，请求体必须是 JSON 对
 ```json
 {
   "ok": true,
-  "plugin_version": "0.5.0",
+  "plugin_version": "0.5.1",
   "protocol_version": 1,
   "clients": 1,
   "request_timeout_sec": 60,
-  "capabilities": ["request_id", "request_status", "full_config", "state_revision", "sleep_wake"]
+  "capabilities": ["request_id", "request_status", "full_config", "state_revision", "sleep_wake", "interactions"]
 }
 ```
 
@@ -79,7 +79,7 @@ GET `/api/requests/{request_id}?kind=chat|action` 返回 `status: pending|comple
     "exp": 0,
     "level": 1
   },
-  "plugin_version": "0.5.0",
+  "plugin_version": "0.5.1",
   "protocol_version": 1,
   "revision": 0,
   "clients": 1
@@ -238,7 +238,7 @@ POST 是部分字段更新：
   "state":{"mood":80,"satiety":80,"cleanliness":80,"energy":80,"exp":0,"level":1},
   "behavior":{"enable_chatter":true,"chatter_lines":[],"chatter_interval_sec":90,"sleepy_lines":[],"walk_speed":1.5,"sleepy_threshold":20,"enable_roam":true},
   "config":{"enable_chatter":true,"chatter_lines":[],"chatter_interval_sec":90,"sleepy_lines":[],"walk_speed":1.5,"sleepy_threshold":20,"enable_roam":true,"persona_source":"custom","astrbot_persona_id":"","persona":"桌宠人格","pet_name":"桌宠","llm_action_reply":true},
-  "plugin_version":"0.5.0",
+  "plugin_version":"0.5.1",
   "protocol_version":1,
   "revision":0,
   "ts":1793318400.0
@@ -365,4 +365,121 @@ POST 是部分字段更新：
 - 配置现在严格校验，过去被静默转换的 `"false"`、数字字符串、越界值会返回 `400`。
 - 聊天失败现在返回错误状态，而不是以 `200` 包装失败台词；旧客户端应升级错误显示逻辑。
 - 旧客户端不提供 `request_id` 时仍可聊天和互动，但不具备可靠的重试去重能力。
-- 服务接口兼容不等于桌面实现已全面验证；原桌面端源码本次未作为可运行联调对象，交付桌面端为 0.8.0 重建版本。
+- 桌面端 0.8.1 是基于既有联动协议的重建版本；接口兼容说明不代表所有旧版桌面端都已完成实测。
+
+<a id="interactions-051"></a>
+
+## 9. 0.5.1 增补：互动冷却同步
+
+**本节随插件 0.5.1 发行，配套桌面端为 0.8.1。** 协议版本仍为 `1`，旧接口保持兼容。客户端应检查 `capabilities` 中是否包含 `interactions`，并兼容字段缺失的旧端，而不是仅依据版本字符串判断能力。
+
+### 冷却快照
+
+服务端提供以下 `interactions` 对象：
+
+```json
+{
+  "server_time": 1793400000.25,
+  "revision": 12,
+  "cooldowns": {
+    "feed": 9.75,
+    "clean": 0,
+    "play": 0,
+    "sleep": 0,
+    "wake": 0,
+    "poke": 0
+  }
+}
+```
+
+| 字段 | 含义 |
+|---|---|
+| `server_time` | 生成快照时的服务端 Unix 时间，单位为秒，可带小数 |
+| `revision` | 快照对应的养成状态修订号，作用域为当前插件进程；重启后重置 |
+| `cooldowns` | 各动作在生成快照时剩余的冷却秒数；非负数字，最多保留三位小数；`0` 表示没有剩余时间冷却 |
+
+冷却按动作分别计算，并与养成数据一起保存。冷却快照只描述时间限制；`sleep` / `wake` 是否适用仍需结合 `state.is_sleeping`。同一动作仍在执行时也可能返回 `action_cooldown`，即使此前快照中的时间冷却为零。
+
+### HTTP 与 hello 中的字段
+
+| 位置 | 0.5.1 增补语义 |
+|---|---|
+| `GET /api/health` | `capabilities` 包含 `interactions`，用于能力检测 |
+| `GET /api/state` | 顶层增加当前 `interactions`，并提供 `capabilities` |
+| WS `hello` | 顶层增加当前 `interactions` 和 `capabilities`，用于首次连接或重连同步 |
+| `POST /api/action` 成功响应 | 保留 `action` 动作名，并附该次成功提交后的 `interactions`；响应仍包含 `reply`、`state`、`revision`、`request_id` 等原字段 |
+| `GET /api/requests/{request_id}?kind=chat\|action` | 无论 `status` 是 `pending`、`completed` 还是 `unknown`，外层 `interactions` 都是查询时的当前快照 |
+
+成功请求的缓存内容保持历史语义。查询已完成请求时，`result` 是原始成功响应，其中的 `result.interactions` 如果存在，表示当时的冷却；查询响应外层的 `interactions` 表示现在的冷却。示例省略了缓存结果中的其他字段：
+
+```json
+{
+  "status": "completed",
+  "request_id": "feed-001",
+  "interactions": {
+    "server_time": 1793400060.25,
+    "revision": 12,
+    "cooldowns": {"feed":0,"clean":0,"play":0,"sleep":0,"wake":0,"poke":0}
+  },
+  "result": {
+    "action": "feed",
+    "reply": "唔姆唔姆……好好吃！",
+    "request_id": "feed-001",
+    "revision": 12,
+    "interactions": {
+      "server_time": 1793400000.25,
+      "revision": 12,
+      "cooldowns": {"feed":9.75,"clean":0,"play":0,"sleep":0,"wake":0,"poke":0}
+    }
+  }
+}
+```
+
+客户端应先应用外层当前快照，再处理缓存结果；不能把缓存中的旧剩余秒数当成新冷却重新开始计时。重复 POST 同一成功请求仍返回原缓存结果，不额外发放收益，也不刷新缓存中的快照。请求缓存仍仅在进程内有效，重启后查询可能返回 `unknown`。
+
+### WebSocket 广播与顺序
+
+互动保存成功后，除原来的 `state` 和 `speak` 外，还向所有连接端广播：
+
+```json
+{
+  "type": "interactions",
+  "revision": 12,
+  "data": {
+    "server_time": 1793400000.25,
+    "revision": 12,
+    "cooldowns": {"feed":9.75,"clean":0,"play":0,"sleep":0,"wake":0,"poke":0}
+  }
+}
+```
+
+顶层 `revision` 与 `data.revision` 一致。写入失败不广播成功冷却，也不启动新的冷却。旧客户端可以忽略不认识的消息类型。
+
+客户端应为冷却维护独立的接收基线：先比较冷却快照的 `revision`，相同修订号再比较 `server_time`，拒绝更旧或完全重复的快照。完全重复的 HTTP/WS 结果不应刷新本机倒计时起点。聊天和状态衰减也会提高养成状态修订号，因此不能仅因全局 `stateRevision` 更高，就丢弃尚未接收过的有效冷却快照。重连收到 `hello` 后，应重新建立基线，允许服务重启后的低修订号。
+
+### 冷却错误
+
+`429 action_cooldown` 保留原来的 `error` 和 `code`，额外提供建议等待秒数：
+
+```json
+{
+  "error": "这个互动正在冷却，请约 8 秒后再试。",
+  "code": "action_cooldown",
+  "retry_after_sec": 8
+}
+```
+
+`retry_after_sec` 至少为 1。它用于显示等待提示，不保证正在执行的动作会在该时间内完成，也不要求客户端自动重发。其他错误不必带此字段。
+
+### 桌面端的本地接收时间
+
+**`received_at_ms` 是桌面 core 添加的本机字段，不属于服务端协议。** 插件不会发送或保存此字段。桌面 core 接受一份新快照后，附上本机 `Date.now()`，单位为毫秒，用于本地倒计时，避免直接混用两台机器的时钟：
+
+```js
+const elapsed = Math.max(0, (Date.now() - interactions.received_at_ms) / 1000);
+const remaining = Math.max(0, interactions.cooldowns[action] - elapsed);
+```
+
+桌面 `snapshot.interactions`、`interactions` 更新事件、`action()` / `getState()` 返回值中的 `interactions`，以及 `requestStatus()` 返回值外层的 `interactions`，均使用 core 已接收并过滤过的当前快照，带 `received_at_ms`。`requestStatus().result` 保持历史缓存原义；控制台恢复冷却时应读取外层 `interactions`，而不是直接应用 `result.interactions`。
+
+服务端缺少该增补时，桌面端仍可发起原有互动并处理错误；不应仅根据未知冷却状态永久禁用动作。

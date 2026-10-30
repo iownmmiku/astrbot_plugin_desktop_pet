@@ -20,8 +20,9 @@ from astrbot.api import logger
 from astrbot.api.event import AstrMessageEvent, filter
 from astrbot.api.star import Context, Star, register
 
-PLUGIN_VERSION = "0.5.0"
+PLUGIN_VERSION = "0.5.1"
 PROTOCOL_VERSION = 1
+CAPABILITIES = ["request_id", "request_status", "full_config", "state_revision", "sleep_wake", "interactions"]
 STATE_FILE = "pet_state.json"
 CONFIG_FILE = "pet_behavior.json"
 DEFAULT_STATE = {"mood": 80, "satiety": 80, "cleanliness": 80, "energy": 80, "exp": 0, "level": 1}
@@ -53,9 +54,10 @@ ACTION_RESULTS = {
 
 
 class PetError(Exception):
-    def __init__(self, code: str, message: str, status: int = 400):
+    def __init__(self, code: str, message: str, status: int = 400, *, retry_after_sec: float | None = None):
         super().__init__(message)
         self.code, self.status = code, status
+        self.retry_after_sec = retry_after_sec
 
 
 def _split_lines(value: str | list[str]) -> list[str]:
@@ -136,7 +138,7 @@ def _validate_config(key: str, value):
     return value
 
 
-@register("astrbot_plugin_desktop_pet", "iownmmiku", "虚拟桌宠：Live2D 桌面端联动，聊天/投喂/状态养成", "v0.5.0")
+@register("astrbot_plugin_desktop_pet", "iownmmiku", "虚拟桌宠：Live2D 桌面端联动，聊天/投喂/状态养成", "v0.5.1")
 class DesktopPetPlugin(Star):
     def __init__(self, context: Context, config: dict | None = None):
         super().__init__(context)
@@ -299,7 +301,10 @@ class DesktopPetPlugin(Star):
                 else:
                     response = await handler(request)
             except PetError as exc:
-                response = web.json_response({"error": str(exc), "code": exc.code}, status=exc.status)
+                error = {"error": str(exc), "code": exc.code}
+                if exc.retry_after_sec is not None:
+                    error["retry_after_sec"] = exc.retry_after_sec
+                response = web.json_response(error, status=exc.status)
             except web.HTTPException as exc:
                 response = web.json_response({"error": exc.reason, "code": "http_error"}, status=exc.status)
             except Exception:
@@ -392,12 +397,20 @@ class DesktopPetPlugin(Star):
     async def _http_health(self, request):
         return web.json_response({"ok": True, "plugin_version": PLUGIN_VERSION, "protocol_version": PROTOCOL_VERSION,
                                   "clients": len(self._clients), "request_timeout_sec": self._request_timeout(),
-                                  "capabilities": ["request_id", "request_status", "full_config", "state_revision", "sleep_wake"]})
+                                  "capabilities": CAPABILITIES})
+
+    def _interaction_snapshot(self):
+        now = time.time()
+        cooldown = self._limit("action_cooldown_sec", 10, 0, 3600)
+        return {"server_time": now, "revision": self._state_revision,
+                "cooldowns": {action: math.ceil(max(0, self._action_times.get(action, 0) + cooldown - now) * 1000) / 1000
+                              for action in ACTION_RESULTS}}
 
     async def _http_state(self, request):
         return web.json_response({"pet_name": self._cfg("pet_name"), "state": self.state,
                                   "plugin_version": PLUGIN_VERSION, "protocol_version": PROTOCOL_VERSION,
-                                  "revision": self._state_revision, "clients": len(self._clients)})
+                                  "revision": self._state_revision, "clients": len(self._clients),
+                                  "capabilities": CAPABILITIES, "interactions": self._interaction_snapshot()})
 
     async def _http_request_status(self, request):
         request_id = request.match_info["request_id"]
@@ -405,12 +418,14 @@ class DesktopPetPlugin(Star):
         if kind not in ("chat", "action") or not 1 <= len(request_id) <= 128:
             raise PetError("invalid_request", "无效的请求标识或 kind。")
         entry = self._requests.get(("/api/" + kind, request_id))
+        interactions = self._interaction_snapshot()
         if entry and (entry[2] is None or time.monotonic() - entry[1] <= 600):
-            result = {"status": "pending" if entry[2] is None else "completed", "request_id": request_id}
+            result = {"status": "pending" if entry[2] is None else "completed", "request_id": request_id,
+                      "interactions": interactions}
             if entry[2] is not None:
                 result["result"] = copy.deepcopy(entry[2])
             return web.json_response(result)
-        return web.json_response({"status": "unknown", "request_id": request_id})
+        return web.json_response({"status": "unknown", "request_id": request_id, "interactions": interactions})
 
     async def _run_once(self, request, body, operation):
         request_id = body.get("request_id")
@@ -554,6 +569,7 @@ class DesktopPetPlugin(Star):
                 "behavior": self.get_behavior(), "config": self.get_full_config(),
                 "plugin_version": PLUGIN_VERSION, "protocol_version": PROTOCOL_VERSION,
                 "revision": self._state_revision, "ts": time.time(), "request_timeout_sec": self._request_timeout(),
+                "capabilities": CAPABILITIES, "interactions": self._interaction_snapshot(),
             }), timeout=2)
             async for message in ws:
                 if message.type == WSMsgType.TEXT:
@@ -750,7 +766,9 @@ class DesktopPetPlugin(Star):
         cooldown = self._limit("action_cooldown_sec", 10, 0, 3600)
         remaining = self._action_times.get(action, 0) + cooldown - time.time()
         if action in self._action_pending or remaining > 0:
-            raise PetError("action_cooldown", f"这个互动正在冷却，请约 {max(1, math.ceil(remaining))} 秒后再试。", 429)
+            retry_after = max(1, math.ceil(remaining))
+            raise PetError("action_cooldown", f"这个互动正在冷却，请约 {retry_after} 秒后再试。", 429,
+                           retry_after_sec=retry_after)
         if action == "sleep" and self.state.get("is_sleeping"):
             raise PetError("already_sleeping", "桌宠已经睡着了，可以点击唤醒。", 409)
         if action == "wake" and not self.state.get("is_sleeping"):
@@ -780,8 +798,11 @@ class DesktopPetPlugin(Star):
                     self._action_times[action] = previous_time
                 raise
             revision = self._state_revision
+            interactions = self._interaction_snapshot()
             await self._broadcast({"type": "state", "data": state, "revision": revision})
+            await self._broadcast({"type": "interactions", "data": interactions, "revision": revision})
             await self._broadcast({"type": "speak", "text": text, "source": action, "request_id": request_id})
-            return {"reply": text, "state": state, "revision": revision, "fallback": fallback, "action": action}
+            return {"reply": text, "state": state, "revision": revision, "fallback": fallback, "action": action,
+                    "interactions": interactions}
         finally:
             self._action_pending.discard(action)
