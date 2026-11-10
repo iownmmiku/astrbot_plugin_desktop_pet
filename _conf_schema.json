@@ -17,6 +17,12 @@
     "hint": "设置后桌面端必须携带相同 token 才能连接。",
     "default": ""
   },
+  "allowed_origins": {
+    "description": "允许直接访问的网页来源（高级）",
+    "type": "list",
+    "hint": "默认留空：桌面端不受影响，任何浏览器网页都不能调用桌宠服务，防止你访问的网站偷偷改人格、刷模型额度或读取聊天。只有自己开发网页客户端时才填写，例如 http://localhost:5173。",
+    "default": []
+  },
   "provider_id": {
     "description": "桌宠专用聊天模型（留空使用 AstrBot 当前模型）",
     "type": "string",
@@ -94,8 +100,28 @@
   "push_bot_reply": {
     "description": "把机器人对用户的回复同步到桌宠气泡",
     "type": "bool",
-    "hint": "开启后，AstrBot 在各平台回复的消息会让桌宠“复读”出来。",
+    "hint": "开启后，AstrBot 在聊天平台的回复会让桌宠“复读”出来，同步范围见下一项。",
     "default": true
+  },
+  "push_bot_reply_scope": {
+    "description": "同步哪些会话的回复",
+    "type": "string",
+    "hint": "admin=只同步 AstrBot 管理员发起的对话（默认）；whitelist=只同步下方列出的会话；all=同步所有群聊和私聊（他人的对话也会显示在桌面上）。",
+    "options": ["admin", "whitelist", "all"],
+    "labels": ["仅管理员的对话", "仅白名单会话", "所有会话"],
+    "default": "admin"
+  },
+  "push_bot_reply_sessions": {
+    "description": "回复同步白名单（会话 ID）",
+    "type": "list",
+    "hint": "同步范围为「仅白名单会话」时生效。填写会话的 unified_msg_origin，可在 AstrBot 中发送 /sid 查看。",
+    "default": []
+  },
+  "feed_command_admin_only": {
+    "description": "仅管理员可用 /投喂 指令",
+    "type": "bool",
+    "hint": "开启后，群聊里的其他人不能通过指令改变桌宠状态或占用投喂冷却。",
+    "default": false
   },
   "enable_state_decay": {
     "description": "启用状态随时间下降（饱食/心情/清洁/精力）",

@@ -20,13 +20,25 @@ from astrbot.api import logger
 from astrbot.api.event import AstrMessageEvent, filter
 from astrbot.api.star import Context, Star, register
 
-PLUGIN_VERSION = "0.5.1"
+def _read_version() -> str:
+    """版本号只在 metadata.yaml 维护，避免发版时漏改。"""
+    with contextlib.suppress(OSError):
+        with open(os.path.join(os.path.dirname(os.path.abspath(__file__)), "metadata.yaml"), encoding="utf-8") as stream:
+            for line in stream:
+                key, _, value = line.partition(":")
+                if key.strip() == "version" and value.strip():
+                    return value.strip().strip("'\"").lstrip("v")
+    return "0.0.0"
+
+
+PLUGIN_VERSION = _read_version()
 PROTOCOL_VERSION = 1
 CAPABILITIES = ["request_id", "request_status", "full_config", "state_revision", "sleep_wake", "interactions"]
 STATE_FILE = "pet_state.json"
 CONFIG_FILE = "pet_behavior.json"
 DEFAULT_STATE = {"mood": 80, "satiety": 80, "cleanliness": 80, "energy": 80, "exp": 0, "level": 1}
 SLEEP_DEFAULTS = {"is_sleeping": False, "sleep_started_at": None}
+STATE_SAVE_INTERVAL_SEC = 60
 DECAY_PER_MIN = {"mood": 0.2, "satiety": 0.5, "cleanliness": 0.2, "energy": 0.3}
 DEFAULT_CONFIG = {
     "pet_name": "桌宠", "persona_source": "custom", "astrbot_persona_id": "",
@@ -138,7 +150,7 @@ def _validate_config(key: str, value):
     return value
 
 
-@register("astrbot_plugin_desktop_pet", "iownmmiku", "虚拟桌宠：Live2D 桌面端联动，聊天/投喂/状态养成", "v0.5.1")
+@register("astrbot_plugin_desktop_pet", "iownmmiku", "虚拟桌宠：Live2D 桌面端联动，聊天/投喂/状态养成", f"v{PLUGIN_VERSION}")
 class DesktopPetPlugin(Star):
     def __init__(self, context: Context, config: dict | None = None):
         super().__init__(context)
@@ -158,6 +170,10 @@ class DesktopPetPlugin(Star):
         self._action_pending: set[str] = set()
         self._action_times: dict[str, float] = {}
         self._state_fractions = {key: 0.0 for key in DECAY_PER_MIN}
+        self._background: set[asyncio.Task] = set()
+        self._state_dirty = False
+        self._last_state_save = time.monotonic()
+        self._save_failing = False
         self._load_state()
         self._load_behavior_overrides()
 
@@ -276,7 +292,26 @@ class DesktopPetPlugin(Star):
             raise PetError("storage_error", "状态保存失败，请检查磁盘空间和目录权限。", 503) from exc
         self.state = candidate
         self._state_revision += 1
+        self._mark_saved()
         return dict(candidate)
+
+    def _mark_saved(self):
+        self._state_dirty = False
+        self._last_state_save = time.monotonic()
+        if self._save_failing:
+            logger.info("[桌宠] 状态已恢复保存。")
+        self._save_failing = False
+
+    def _flush_state(self) -> bool:
+        try:
+            self._save_state()
+        except OSError as exc:
+            if not self._save_failing:
+                logger.error(f"[桌宠] 状态保存失败，将稍后重试：{type(exc).__name__}")
+            self._save_failing = True
+            return False
+        self._mark_saved()
+        return True
 
     def _check_token(self, request: web.Request) -> bool:
         token = str(self.config.get("auth_token", "") or "")
@@ -288,16 +323,43 @@ class DesktopPetPlugin(Star):
             offered.append(auth[7:])
         return any(hmac.compare_digest(value.encode(), token.encode()) for value in offered)
 
+    def _allowed_origins(self) -> set[str]:
+        value = self.config.get("allowed_origins", [])
+        items = value if isinstance(value, list) else str(value or "").replace(",", "\n").splitlines()
+        # "null" 来自沙箱 iframe / 本地文件页面，任何页面都能伪造，永不放行。
+        return {item.strip().rstrip("/") for item in items
+                if isinstance(item, str) and item.strip() and item.strip().lower() != "null"}
+
+    def _origin_allowed(self, request: web.Request) -> str | None:
+        """返回放行的浏览器来源；非浏览器客户端返回空串；拒绝时抛出 PetError。
+
+        桌面端由 Electron 主进程发起请求，不带 Origin。浏览器跨站请求（含 WebSocket 与
+        无需预检的 text/plain POST）总会带 Origin 或 Sec-Fetch-Site，据此拦截网页驱动的操作。
+        """
+        origin = request.headers.get("Origin")
+        if origin is not None:
+            if origin.rstrip("/") in self._allowed_origins():
+                return origin
+            raise PetError("forbidden_origin", "不允许浏览器网页直接访问桌宠服务。", 403)
+        if request.headers.get("Sec-Fetch-Site", "none") not in ("none", "same-origin"):
+            raise PetError("forbidden_origin", "不允许浏览器网页直接访问桌宠服务。", 403)
+        return ""
+
     def create_app(self):
         @web.middleware
         async def api_middleware(request, handler):
+            origin = ""
             try:
+                origin = self._origin_allowed(request)
                 if request.method == "OPTIONS":
                     response = web.Response(status=204)
                 elif self._closing:
                     raise PetError("shutting_down", "桌宠服务正在关闭。", 503)
                 elif not self._check_token(request):
                     raise PetError("unauthorized", "连接令牌不正确。", 401)
+                elif request.method == "POST" and request.body_exists and request.content_type != "application/json":
+                    # 强制 JSON 类型，使浏览器跨站请求必须经过预检。
+                    raise PetError("unsupported_media_type", "请求的 Content-Type 必须是 application/json。", 415)
                 else:
                     response = await handler(request)
             except PetError as exc:
@@ -311,12 +373,15 @@ class DesktopPetPlugin(Star):
                 logger.exception("[桌宠] 请求处理失败")
                 response = web.json_response({"error": "服务内部错误，请查看 AstrBot 日志。", "code": "internal_error"}, status=500)
             if not response.prepared:
-                response.headers.update({
-                    "Access-Control-Allow-Origin": "*",
-                    "Access-Control-Allow-Headers": "Content-Type, X-Pet-Token, Authorization",
-                    "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
-                    "Cache-Control": "no-store",
-                })
+                response.headers["Cache-Control"] = "no-store"
+                if origin:
+                    # 只对 allowed_origins 中明确列出的网页返回 CORS 头。
+                    response.headers.update({
+                        "Access-Control-Allow-Origin": origin,
+                        "Access-Control-Allow-Headers": "Content-Type, X-Pet-Token, Authorization",
+                        "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
+                        "Vary": "Origin",
+                    })
             return response
 
         app = web.Application(middlewares=[api_middleware], client_max_size=65536)
@@ -362,6 +427,12 @@ class DesktopPetPlugin(Star):
             with contextlib.suppress(asyncio.CancelledError):
                 await self._decay_task
             self._decay_task = None
+        for task in list(self._background):
+            task.cancel()
+        await asyncio.gather(*self._background, return_exceptions=True)
+        self._background.clear()
+        if self._state_dirty:
+            self._flush_state()
         await asyncio.gather(*(self._close_ws(ws) for ws in list(self._clients)), return_exceptions=True)
         self._clients.clear()
         if self._runner:
@@ -378,9 +449,9 @@ class DesktopPetPlugin(Star):
             previous = now
             try:
                 await self._tick_state(minutes)
-            except PetError:
-                # 磁盘暂时不可写时不让定时任务永久退出，也不广播未保存状态。
-                continue
+            except Exception:
+                # 任何意外都不能让养成计时永久退出。
+                logger.exception("[桌宠] 状态计时出错")
 
     @staticmethod
     async def _read_body(request):
@@ -713,9 +784,38 @@ class DesktopPetPlugin(Star):
             raise PetError("llm_empty", "模型未返回有效互动台词。", 502)
         return reply
 
+    @staticmethod
+    def _event_is_admin(event) -> bool:
+        with contextlib.suppress(Exception):
+            checker = getattr(event, "is_admin", None)
+            if callable(checker):
+                return checker() is True
+            return getattr(event, "role", None) == "admin"
+        return False
+
+    def _should_forward(self, event) -> bool:
+        if not self.config.get("push_bot_reply", True) or not self._clients:
+            return False
+        scope = self.config.get("push_bot_reply_scope", "admin")
+        if scope == "all":
+            return True
+        if scope == "whitelist":
+            sessions = self.config.get("push_bot_reply_sessions", [])
+            sessions = sessions if isinstance(sessions, list) else _split_lines(str(sessions or ""))
+            origin = getattr(event, "unified_msg_origin", None)
+            return isinstance(origin, str) and origin in {s.strip() for s in sessions if isinstance(s, str)}
+        # 默认只同步管理员发起的对话，避免把其他群聊 / 私聊的回复推到桌面。
+        return self._event_is_admin(event)
+
+    def _spawn(self, coro):
+        task = asyncio.create_task(coro)
+        self._background.add(task)
+        task.add_done_callback(self._background.discard)
+        return task
+
     @filter.on_decorating_result(priority=100)
     async def _forward_reply(self, event: AstrMessageEvent):
-        if not self.config.get("push_bot_reply", True) or not self._clients:
+        if not self._should_forward(event):
             return
         result = event.get_result()
         if result is None:
@@ -725,7 +825,8 @@ class DesktopPetPlugin(Star):
         except Exception:
             text = "".join(getattr(component, "text", "") for component in (getattr(result, "chain", None) or [])).strip()
         if text:
-            await self._broadcast({"type": "speak", "text": text[:200], "source": "bot", "request_id": uuid.uuid4().hex})
+            # 不等待桌面端：慢连接不能拖慢聊天平台上的真实回复。
+            self._spawn(self._broadcast({"type": "speak", "text": text[:200], "source": "bot", "request_id": uuid.uuid4().hex}))
 
     @filter.command("桌宠")
     async def pet_status(self, event: AstrMessageEvent):
@@ -737,6 +838,9 @@ class DesktopPetPlugin(Star):
 
     @filter.command("投喂")
     async def feed(self, event: AstrMessageEvent):
+        if self.config.get("feed_command_admin_only", False) and not self._event_is_admin(event):
+            yield event.plain_result("只有管理员可以用指令投喂桌宠。")
+            return
         try:
             await self._perform_action("feed", uuid.uuid4().hex, use_llm=False)
         except PetError as exc:
@@ -751,16 +855,27 @@ class DesktopPetPlugin(Star):
             delta["energy"] = self._limit("sleep_energy_per_min", 6, 0.1, 60) * minutes
             if self.state["energy"] + delta["energy"] >= 100:
                 flags = {"is_sleeping": False, "sleep_started_at": None}
-        if delta or flags:
-            # 15秒计时下仍保留小数余量，避免每次取一位小数把轻微衰减全部抹掉。
-            residuals = dict(self._state_fractions)
-            for key, value in delta.items():
-                amount = value + residuals.get(key, 0)
-                delta[key] = round(amount, 1)
-                residuals[key] = amount - delta[key]
-            state = self._commit_state(delta, flags=flags)
-            self._state_fractions = residuals
-            await self._broadcast({"type": "state", "data": state, "revision": self._state_revision})
+        if not (delta or flags):
+            return
+        # 15秒计时下仍保留小数余量，避免每次取一位小数把轻微衰减全部抹掉。
+        for key, value in delta.items():
+            amount = value + self._state_fractions.get(key, 0)
+            delta[key] = round(amount, 1)
+            self._state_fractions[key] = amount - delta[key]
+        candidate = dict(self.state)
+        for key, value in delta.items():
+            candidate[key] += value
+        if flags:
+            candidate.update(flags)
+        candidate = self._normalized_state(candidate)
+        if candidate != self.state:
+            # 衰减只更新内存并广播；落盘合并为每分钟一次，数值触底不再变化时不写盘。
+            self.state = candidate
+            self._state_revision += 1
+            self._state_dirty = True
+            await self._broadcast({"type": "state", "data": dict(candidate), "revision": self._state_revision})
+        if self._state_dirty and (flags or time.monotonic() - self._last_state_save >= STATE_SAVE_INTERVAL_SEC):
+            self._flush_state()
 
     async def _perform_action(self, action, request_id, use_llm=True):
         cooldown = self._limit("action_cooldown_sec", 10, 0, 3600)

@@ -24,9 +24,11 @@ Authorization: Bearer your-token
 
 兼容旧端的 `?token=your-token` 查询参数也受支持。桌面端 0.8.1 的网络请求由 Electron 主进程完成，使用请求头携带令牌。不要把令牌写进诊断文本或保存的分享 URL。
 
-`OPTIONS` 预检无需令牌，返回 `204`。普通 HTTP 响应带 `Cache-Control: no-store` 和 CORS 头；允许的请求头包括 `Content-Type`、`X-Pet-Token`、`Authorization`。令牌为空时不要求鉴权；远程部署应配置令牌。
+普通 HTTP 响应带 `Cache-Control: no-store`。令牌为空时不要求鉴权；远程部署应配置令牌。
 
-POST 请求使用 `Content-Type: application/json`，请求体必须是 JSON 对象。请求体上限为 64 KiB；数组、字符串、`null`、损坏 JSON 均被拒绝。无效输入不会部分应用。
+**浏览器隔离（插件 0.5.2 起）**：服务只供非浏览器客户端（如桌面端主进程）使用，默认不返回 CORS 头。带 `Origin` 请求头的 HTTP 请求与 WebSocket 握手，以及 `Sec-Fetch-Site` 为 `cross-site` / `same-site` 的请求，一律返回 `403 forbidden_origin`，`Origin: null` 永不放行。这可阻止用户浏览的网页在令牌为空时改配置、调用模型或读取聊天。自行开发网页客户端时，在插件配置 `allowed_origins` 中列出其来源；仅对列出的来源响应 `OPTIONS` 预检（`204`，无需令牌）并返回 `Access-Control-Allow-Origin`（该来源）、`Vary: Origin` 及允许的请求头 `Content-Type`、`X-Pet-Token`、`Authorization`。
+
+POST 请求必须使用 `Content-Type: application/json`，否则返回 `415 unsupported_media_type`；请求体必须是 JSON 对象。请求体上限为 64 KiB；数组、字符串、`null`、损坏 JSON 均被拒绝。无效输入不会部分应用。
 
 ## 2. HTTP 端点
 

@@ -18,7 +18,7 @@
 - 使用 AstrBot 当前聊天模型，或指定桌宠专用模型；支持自定义人格、指定 AstrBot 人格、AstrBot 默认人格。
 - 保存心情、饱食、清洁、精力、经验和等级；支持投喂、摸头、洗澡、睡觉、戳一戳。
 - 桌面端读取、修改行为配置后，插件保存并广播给所有连接端。
-- 可将 AstrBot 各平台回复推送到所有已连接桌宠；由 `push_bot_reply` 控制。
+- 可将 AstrBot 平台回复推送到已连接桌宠；由 `push_bot_reply` 控制，默认只同步管理员发起的对话（`push_bot_reply_scope`）。
 - 聊天超时和模型失败返回明确错误；互动台词生成失败时，使用预置台词完成互动。
 - 支持令牌鉴权、请求去重、健康检查、慢连接隔离和退出清理。
 
@@ -60,6 +60,7 @@
 | `ws_host` | `127.0.0.1` | 本机监听；远程使用时可设 `0.0.0.0` |
 | `ws_port` | `9898` | 监听端口；需与桌面端一致 |
 | `auth_token` | 空 | 配置后，HTTP 和 WebSocket 都必须通过鉴权 |
+| `allowed_origins` | 空 | 默认拒绝所有浏览器网页访问，桌面端不受影响；仅自行开发网页客户端时填写其来源 |
 | `provider_id` | 空 | 自 0.4.0 起支持；留空跟随当前模型，也可在 WebUI 选择专用模型 |
 | `llm_timeout_sec` | `45` | 自0.4.0起支持；聊天和台词生成超时秒数，建议设置范围 1–180 |
 | `action_llm_timeout_sec` | `8` | 自0.4.0起支持；互动台词超时秒数，建议设置范围 1–60；超时使用预置台词 |
@@ -78,7 +79,10 @@
 | `astrbot_persona_id` | 空 | 来源为 `persona` 时使用的人格 ID |
 | `persona` | 内置桌宠人格 | 仅来源为 `custom` 时生效，最多 20000 字 |
 | `llm_action_reply` | `true` | 互动是否尝试生成符合人格的台词 |
-| `push_bot_reply` | `true` | 是否向所有已连接桌宠同步 AstrBot 平台回复 |
+| `push_bot_reply` | `true` | 是否向已连接桌宠同步 AstrBot 平台回复 |
+| `push_bot_reply_scope` | `admin` | `admin` 仅管理员发起的对话；`whitelist` 仅 `push_bot_reply_sessions` 中的会话；`all` 所有群聊和私聊 |
+| `push_bot_reply_sessions` | 空 | 白名单会话的 `unified_msg_origin`，可用 `/sid` 查看 |
+| `feed_command_admin_only` | `false` | 开启后只有管理员能用 `/投喂` 指令 |
 
 选择 AstrBot 人格时，直接使用其系统提示词和开场对话，不再追加自定义人格或桌宠聊天前缀。所选人格不可用时，聊天和台词生成返回错误；互动仍可回退到预置台词，并在结果中标记 `fallback: true`。
 

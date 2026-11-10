@@ -1,5 +1,16 @@
 # 插件更新日志
 
+## 0.5.2 — 2026-11-10
+
+配套桌面端 0.8.x；桌面端无需同时升级。
+
+
+- **安全**：默认拒绝浏览器网页访问。带 `Origin` 的请求和 WebSocket 握手、跨站 `Sec-Fetch-Site` 请求返回 `403 forbidden_origin`，不再返回 `Access-Control-Allow-Origin: *`；POST 必须是 `application/json`（否则 `415`）。修复令牌为空时任意网页可改人格、调用模型、通过 WebSocket 读取聊天的问题。自建网页客户端可用新配置 `allowed_origins` 放行。桌面端不发送 `Origin`，无需更新。
+- **隐私**：平台回复同步新增 `push_bot_reply_scope`，默认只同步 AstrBot 管理员发起的对话；可选白名单（`push_bot_reply_sessions`）或全部会话。同步改为后台发送，慢连接不再拖慢聊天平台上的回复。
+- 新增 `feed_command_admin_only`，可限制 `/投喂` 指令只由管理员使用。
+- 状态衰减只在数值变化时广播，落盘合并为每分钟一次（互动、睡眠状态变化和插件停止时立即保存），数值触底后不再写盘；保存失败会记录并自动重试。
+- 插件版本号只在 `metadata.yaml` 维护，代码从中读取。
+
 ## 0.5.1 — 2026-10-30
 
 - 同步互动冷却：`GET /api/state`、WebSocket `hello` 和互动成功响应提供 `interactions`，包含服务端时间、状态修订号和各动作剩余秒数。
